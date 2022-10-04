@@ -12,7 +12,7 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.db import get_db
+from app.db import get_db,close_db
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -50,14 +50,12 @@ def register():
     try:
         if g.user:
             return redirect(url_for('inbox.show'))
-      
+        
         if request.method ==  'POST':    
+            error = None
             username =  request.form['username']
             password = request.form['password']
             email =  request.form['email']
-            
-            db = get_db() if not g.db else g.dbc
-            error = None
 
             if  not username:
                 error = 'Username is required.'
@@ -74,7 +72,7 @@ def register():
                 flash(error)
                 return render_template('auth/register.html')
 
-            if (not utils.isPasswordValid(password)):
+            if ( utils.isPasswordValid(password)):
                 error = 'Password should contain at least a lowercase letter, an uppercase letter and a number with 8 characters long'
                 flash(error)
                 return render_template('auth/register.html')
@@ -89,18 +87,19 @@ def register():
                 flash(error)
                 return render_template('auth/register.html')
 
-            
-            if db.execute('SELECT id FROM user WHERE email = ?', (email)).fetchone() is not None:
+            db = get_db() 
+            print('voy a ejecutar consultas...')
+            if db.execute('SELECT * FROM user WHERE email = ?', (email,)).fetchone() is not None:
                 error =  'Email {email} is already registered.'.format(email)
                 flash(error)
                 return render_template('auth/register.html')
-
-            if db.execute('SELECT id FROM user WHERE username = ?', (username)).fetchone() is not None:
+            print('voy a ejecutar consultas 1...')
+            if db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone() is not None:
                 error =  'El nombre de usuario {username} ya existe.'.format(username)
                 flash(error)
                 return render_template('auth/register.html')
-
-            if db.execute('insert into credentials (user, password, email, name) values (?,?,?)', (username,password, email, utils.EMAIL_APP)).fetchone() is not None:
+            print('voy a ejecutar consultas 2...')
+            if db.execute('insert into credentials (user, password, name) values (?,?,?)', (username,password, username)).fetchone() is not None:
                 error = 'User {username} is already registered.'.format(username)
                 flash(error)
                 return render_template('auth/register.html')
@@ -109,32 +108,37 @@ def register():
             salt = hex(random.getrandbits(128))[2:]
             hashP = generate_password_hash(password + salt)
             number = hex(random.getrandbits(512))[2:]
-
+            print('aqui vamos...')
+            
             db.execute(
                 'insert into user (username,password, salt, email) values (?,?,?,?)',
                 (username, password, salt, email)
             )
 
             db.execute(
-                'insert into activationlink (id,state,username,challenge, salt, email, password) values (?,?,?,?,?,?,?)',
-                (number, utils.U_UNCONFIRMED, username, hashP, salt, email, password)
+                'insert into activationlink (state,username,challenge, salt, email, password) values (?,?,?,?,?,?)',
+                (utils.U_UNCONFIRMED, username, hashP, salt, email, password)
             )
             
-            db.commit()
 
             credentials = db.execute(
-                'Select user,password from credentials where name=? and user=? and password', (utils.EMAIL_APP,username, password)
-            ).fetchone()
+                    'Select c.user,c.password from credentials c where name=?',(utils.EMAIL_APP,)
+                ).fetchone()
 
+            print('obtenemos credenciales')
+            print(credentials[0])
+            db.commit()
+            close_db()
             content = 'Hello there, to activate your account, please click on this link ' + flask.url_for('auth.activate', _external=True) + '?auth=' + number
-            
-            send_email(credentials, receiver=email, subject='Activate your account', message=content)
+            print(content)
+            send_email(credentials, email, 'Activate your account', content)
             
             flash('Please check in your registered email to activate your account')
             return render_template('auth/login.html') 
-
-        return render_template('auth/forgot.html') 
+        flash(error)
+        return render_template('auth/login.html') 
     except:
+        flash('error no controlado')
         return render_template('auth/register.html')
 
     
@@ -269,28 +273,33 @@ def forgot():
 
 @bp.route('/login', methods= ('GET', 'POST'))
 def login():
+    error = None
     try:
+        print(request)
         if g.user:
             return redirect(url_for('inbox.show'))
 
         if request.method == 'POST':
-            username =  request.POST.get('username')
-            password =  request.POST.get('password')
+            username =  request.form['username']
+            password =  request.form['password']
+            print(username, password)
 
             if  not username:
                 error = 'Username Field Required'
+                print(error)
                 flash(error)
                 return render_template('auth/login.html')
 
             if  not password:
                 error = 'Password Field Required'
+                print(error)
                 flash(error)
                 return render_template('auth/forgot.html')
 
             db = get_db() if not g.db else g.dbc
-            error = None
+            
             user = db.execute(
-                'Select * from user u where u.username = ? and u.password = ?', (username,password)
+                'Select * from user where username = ? and password = ?', (username,password)
             ).fetchone()
             
             if  user is None:
@@ -299,13 +308,14 @@ def login():
                 error = 'Incorrect username or password'   
 
             if error is None:
+                print('ingreso en la app')
                 session.clear()
                 session['user_id'] = user[ 'id' ]
                 return redirect(url_for('inbox.show'))
-
+            print(error)
             flash(error)
 
-        return render_template('auth/forgot.html')
+        return render_template('auth/login.html')
     except:
         return render_template('auth/login.html')
         
@@ -340,7 +350,7 @@ def login_required(view):
 def send_email(credentials, receiver, subject, message):
     # Create Email
     email = EmailMessage()
-    email["From"] = credentials['user']
+    email["From"] = credentials[0]
     email["To"] = receiver
     email["Subject"] = subject
     email.set_content(message)
@@ -348,8 +358,8 @@ def send_email(credentials, receiver, subject, message):
     # Send Email
     smtp = smtplib.SMTP("smtp-mail.outlook.com", port=587)
     smtp.starttls()
-    smtp.login(credentials['user'], credentials['password'])
-    smtp.sendmail(credentials['user'], receiver, email.as_string())
+    smtp.login(credentials[0], credentials[1])
+    smtp.sendmail(credentials[0], receiver, email.as_string())
     smtp.quit()
   
     
