@@ -88,17 +88,17 @@ def register():
                 return render_template('auth/register.html')
 
             db = get_db() 
-            
+            print('voy a ejecutar consultas...')
             if db.execute('SELECT * FROM user WHERE email = ?', (email,)).fetchone() is not None:
                 error =  'Email {email} is already registered.'.format(email)
                 flash(error)
                 return render_template('auth/register.html')
-            
+            print('voy a ejecutar consultas 1...')
             if db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone() is not None:
                 error =  'El nombre de usuario {username} ya existe.'.format(username)
                 flash(error)
                 return render_template('auth/register.html')
-            
+            print('voy a ejecutar consultas 2...')
             if db.execute('insert into credentials (user, password, name) values (?,?,?)', (username,password, username)).fetchone() is not None:
                 error = 'User {username} is already registered.'.format(username)
                 flash(error)
@@ -125,10 +125,12 @@ def register():
                     'Select c.user,c.password from credentials c where name=?',(utils.EMAIL_APP,)
                 ).fetchone()
 
+            print('obtenemos credenciales')
+            print(credentials[0])
             db.commit()
             close_db()
             content = 'Hello there, to activate your account, please click on this link ' + flask.url_for('auth.activate', _external=True) + '?auth=' + number
-            
+            print(content)
             send_email(credentials, email, 'Activate your account', content)
             
             flash('Please check in your registered email to activate your account')
@@ -138,7 +140,6 @@ def register():
     except:
         flash('error no controlado')
         return render_template('auth/register.html')
-
     
 @bp.route('/confirm', methods=('GET', 'POST'))
 def confirm():
