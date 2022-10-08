@@ -1,6 +1,8 @@
 from flask import (
-    Blueprint, flash, g, redirect, render_template, request, url_for, current_app, send_file
+    Blueprint, flash, g, redirect, render_template, request, url_for, current_app, send_file, session
 )
+
+import json
 
 from app.auth import login_required
 from app.db import get_db
@@ -16,43 +18,47 @@ def getDB():
 @bp.route('/show')
 @login_required
 def show():
-    db =  get_db()
+    db = get_db()
     messages = db.execute(
-        QUERY
+        "SELECT message.subject, user.username, message.created, message.body FROM message JOIN user on message.from_id=user.id WHERE message.to_id="+str(session['user_id'])+" ORDER BY message.created desc"
     ).fetchall()
 
-    return render_template(TEMP, messages=messages)
+    print(messages)
+
+    return render_template('inbox/show.html', messages=messages)
 
 
 @bp.route('/send', methods=('GET', 'POST'))
 @login_required
 def send():
     if request.method == 'POST':        
-        from_id = g.user['id']
-        to_username =  request.form['to_username']
-        subject =  request.form['subject']
-        body =  request.form['body']
+        from_id = g.user[0]
+        to_username = request.form["to"]
+        subject = request.form["subject"]
+        body = request.form["body"]
 
         db = get_db()
        
         if not to_username:
             flash('To field is required')
-            return render_template(TEMP)
+            return render_template('inbox/send.html')
         
-        if  not subject:
+        if not subject:
             flash('Subject field is required')
             return render_template('inbox/send.html')
         
-        if  not body:
+        if not body:
             flash('Body field is required')
-            return render_template(TEMP)    
+            return render_template('inbox/send.html')    
         
         error = None    
         userto = None 
         
         userto = db.execute(
-            QUERY, (to_username,)
+            "select * from user where username=?", (to_username,)
         ).fetchone()
+        
+        print(userto)
         
         if userto is None:
             error = 'Recipient does not exist'
@@ -60,10 +66,10 @@ def send():
         if error is not None:
             flash(error)
         else:
-            db =    get_db()
+            db = get_db()
             db.execute(
-                QUERY,
-                (g.user['id'], userto['id'], subject, body)
+                "insert into message (from_id,to_id,subject,body) values (?,?,?,?)",
+                (g.user[0], userto[0], subject, body)
             )
             db.commit()
 
