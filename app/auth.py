@@ -135,7 +135,7 @@ def register():
             
             flash('Please check in your registered email to activate your account')
             return render_template('auth/login.html') 
-        flash(error)
+    
         return render_template('auth/login.html') 
     except:        
         return render_template('auth/register.html')
